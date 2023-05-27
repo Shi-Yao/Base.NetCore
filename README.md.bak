@@ -1,0 +1,9 @@
+# Base.NetCoreAPI
+設計.net core 底層
+
+Base.Core專案
+為共用底層專案，目前涵蓋swagger、DB、Middleware、JWT等共用底層設計
+
+
+目前僅呈現圖片撈取API後的圖片
+日後修改往互動式K線圖
