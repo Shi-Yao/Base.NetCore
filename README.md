@@ -8,3 +8,7 @@ Base.Core專案
 Base.NetCoreAPI
 為範例Web API專案引用Base.Core
 
+
+Base.Core.DbSetting
+DbSetting.cs
+自定義本地端共用DB連線
