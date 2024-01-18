@@ -25,7 +25,6 @@ namespace Base.Core.Middlewares
             {
                 await _next(httpContext);
 
-                //JWT 日後補上
                 if (httpContext.Response.StatusCode == (int)HttpStatusCode.Unauthorized)
                 {
                     ApiResponseDto apiResponseDto = new ApiResponseDto()
