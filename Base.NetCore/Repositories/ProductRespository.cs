@@ -2,18 +2,23 @@
 using Base.NetCoreAPI.Interface;
 using Dapper;
 
+
 namespace Base.NetCoreAPI.Repositories
 {
     public class ProductRespository : IProductRespository
     {
         private readonly DapperDbContext _context;
-        public ProductRespository(DapperDbContext context)
+        private readonly ILogger _logger;
+
+        public ProductRespository(DapperDbContext context, ILogger<ProductRespository> logger)
         {
             _context = context;
+            _logger = logger;
         }
 
         public List<ProductResDto> FindByAll()
         {
+            //_logger.LogInformation($"test111");
             var sql = "SELECT * FROM ShoppingMart.dbo.Product";
             using (var connection = _context.CreateConnection())
             {
