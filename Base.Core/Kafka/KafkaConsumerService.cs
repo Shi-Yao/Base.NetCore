@@ -6,15 +6,15 @@ using Base.Core.Kafka.Interface;
 
 namespace Base.Core.Kafka
 {
-    public class KafkaSubscribeService: IKafkaSubscribeService
+    public class KafkaConsumerService: IKafkaConsumerService
     {
-        protected readonly ILogger<KafkaSubscribeService> _logger;
+        protected readonly ILogger<KafkaConsumerService> _logger;
         protected readonly string _kafkaServer;
         protected readonly string _kafkaTopic;
         protected readonly string _kafkaGroupId;
         protected readonly AutoOffsetReset _autoOffset;
 
-        public KafkaSubscribeService(ILogger<KafkaSubscribeService> logger, KafkaSetting settings)
+        public KafkaConsumerService(ILogger<KafkaConsumerService> logger, KafkaSetting settings)
         {
             _logger = logger;
             _kafkaServer = settings.BootstrapServers;

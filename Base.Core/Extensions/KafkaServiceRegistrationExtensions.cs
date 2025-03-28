@@ -5,45 +5,56 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
-namespace Base.Core.Extensions
-{
+namespace Base.Core.Extensions;
+
     public static class KafkaServiceRegistrationExtensions
+{
+    public static IServiceCollection RegisterKafkaServices(this IServiceCollection services,
+        IConfiguration configuration,
+        params string[] kafkaSettingKeys)
     {
-        public static IServiceCollection RegisterKafkaServices(this IServiceCollection services,
-            IConfiguration configuration,
-            params string[] kafkaSettingKeys)
+        services.AddSingleton(provider =>
         {
-            var subscribeSections = configuration.GetSection("KafkaSubscribeSettings").GetChildren();
-            foreach (var section in subscribeSections)
-            {
-                var key = section.Key;
-                var setting = section.Get<KafkaSetting>()
-                              ?? throw new ArgumentNullException($"KafkaSubscribeSetting '{key}' not found");
+            var dictionary = new Dictionary<string, IKafkaProducerService>();
 
-                services.AddSingleton(setting);
-                services.AddTransient<IKafkaSubscribeService>(provider =>
+            foreach (var settingKey in kafkaSettingKeys)
+            {
+                var publishSetting = configuration.GetSection($"KafkaPublishSettings:{settingKey}")
+                    .Get<KafkaSetting>();
+
+                if (publishSetting != null)
                 {
-                    var logger = provider.GetRequiredService<ILogger<KafkaSubscribeService>>();
-                    return new KafkaSubscribeService(logger, setting);
-                });
+                    var logger = provider.GetRequiredService<ILogger<KafkaProducerService>>();
+                    var service = new KafkaProducerService(logger, publishSetting);
+                    dictionary[settingKey] = service;
+                }
             }
 
-            var publishSections = configuration.GetSection("KafkaPublishSettings").GetChildren();
-            foreach (var section in publishSections)
-            {
-                var key = section.Key;
-                var setting = section.Get<KafkaSetting>()
-                              ?? throw new ArgumentNullException($"KafkaPublishSetting '{key}' not found");
+            return dictionary;
+        });
 
-                services.AddSingleton(setting);
-                services.AddTransient<IKafkaPublishService>(provider =>
+        services.AddSingleton(provider =>
+        {
+            var dictionary = new Dictionary<string, IKafkaConsumerService>();
+
+            foreach (var settingKey in kafkaSettingKeys)
+            {
+                var subscribeSetting = configuration.GetSection($"KafkaSubscribeSettings:{settingKey}")
+                    .Get<KafkaSetting>();
+
+                if (subscribeSetting != null)
                 {
-                    var logger = provider.GetRequiredService<ILogger<KafkaPublishService>>();
-                    return new KafkaPublishService(logger, setting);
-                });
+                    var logger = provider.GetRequiredService<ILogger<KafkaConsumerService>>();
+                    var service = new KafkaConsumerService(logger, subscribeSetting);
+                    dictionary[settingKey] = service;
+                }
             }
 
-            return services;
-        }
+            return dictionary;
+        });
+
+        return services;
     }
+
 }
+

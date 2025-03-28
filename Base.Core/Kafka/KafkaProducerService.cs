@@ -6,14 +6,14 @@ using Base.Core.Kafka.Interface;
 
 namespace Base.Core.Kafka
 {
-    public class KafkaPublishService : IKafkaPublishService
+    public class KafkaProducerService : IKafkaProducerService
     {
-        protected readonly ILogger<KafkaPublishService> _logger;
+        protected readonly ILogger<KafkaProducerService> _logger;
         protected readonly string _kafkaServer;
         protected readonly string _kafkaTopic;
         protected readonly string _kafkaGroupId;
 
-        public KafkaPublishService(ILogger<KafkaPublishService> logger, KafkaSetting settings)
+        public KafkaProducerService(ILogger<KafkaProducerService> logger, KafkaSetting settings)
         {
             _logger = logger;
             _kafkaServer = settings.BootstrapServers;

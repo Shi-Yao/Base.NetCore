@@ -1,17 +1,12 @@
 using Base.Core;
 using Base.Core.DbSetting;
 using Base.Core.Dtos;
-using Base.Core.Exceptions;
 using Base.Core.Extensions;
-using Base.Core.Middlewares;
-using Base.Core.Utils;
 using Base.Core.Validate;
 using Base.NetCoreAPI;
 using Base.NetCoreAPI.Interface;
 using Base.NetCoreAPI.Repositories;
 using Base.NetCoreAPI.Services;
-using Microsoft.Extensions.DependencyInjection;
-using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,6 +14,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddServiceCollection(builder.Environment, builder.Configuration);
+builder.Services.RegisterKafkaServices(builder.Configuration, "aaa", "bbb", "ccc", "ddd");
 builder.Host.UseCustSerilog(builder.Configuration);
 
 builder.Services.AddScoped<IProductRespository, ProductRespository>();
