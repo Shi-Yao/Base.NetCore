@@ -25,9 +25,9 @@ namespace Base.NetCore.Controllers
         [HttpGet]
         [Authorize]
         [ValidateAsyncFilter]
-        public async Task<ApiResponseDto> QueryProduct([FromQuery]ProductReqDto product)
+        public async Task<ApiResponseDto> QueryProduct([FromQuery] ProductReqDto product)
         {
-           var result = await _productService.QueryProduct(product.ProductType);
+            var result = await _productService.QueryProduct(product.ProductType);
             _apiResponseDto.Success(result);
             return _apiResponseDto;
         }

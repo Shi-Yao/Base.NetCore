@@ -18,30 +18,28 @@ namespace Base.Core.Extensions
             IConfiguration config)
         {
 
-            // Swagger Setting
-            if (config.GetSection("CustSwagger").Get<string[]>() != null)
+            // 1. 建議使用 Get<T> 直接獲取物件，若設定檔不存在則不執行
+            var swaggerDto = config.GetSection("CustSwagger").Get<SwaggerSetting>();
+
+            if (swaggerDto != null)
             {
-                SwaggerSetting swaggerDto = new SwaggerSetting();
-                config.Bind("CustSwagger", swaggerDto);
                 services.AddSwaggerGen(c =>
                 {
-                    c.SwaggerDoc("v1", new OpenApiInfo
-                    {
-                        Version = swaggerDto.Version,
-                        Title = swaggerDto.Title,
-                        Description = swaggerDto.Description
-                    });
+                    c.SwaggerDoc("v1", new OpenApiInfo { Title = "My API", Version = "v1" });
 
+                    // 定義 Bearer 方案
                     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
                     {
                         Name = "Authorization",
                         In = ParameterLocation.Header,
                         Type = SecuritySchemeType.Http,
-                        Scheme = "Bearer",
-                        BearerFormat = "JWT"
+                        Scheme = "bearer",
+                        BearerFormat = "JWT",
+                        Description = "請輸入 Token"
                     });
 
-                    c.AddSecurityRequirement(new OpenApiSecurityRequirement()
+                    // 設定安全需求
+                    c.AddSecurityRequirement(new OpenApiSecurityRequirement
                     {
                         {
                             new OpenApiSecurityScheme
@@ -50,9 +48,9 @@ namespace Base.Core.Extensions
                                 {
                                     Type = ReferenceType.SecurityScheme,
                                     Id = "Bearer"
-                                },
-                                },
-                            new List<string>()
+                                }
+                            },
+                            Array.Empty<string>()
                         }
                     });
                 });
