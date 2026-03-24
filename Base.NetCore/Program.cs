@@ -2,6 +2,8 @@ using Base.Core;
 using Base.Core.DbSetting;
 using Base.Core.Dtos;
 using Base.Core.Extensions;
+using Base.Core.Kafka.Interface;
+using Base.Core.Kafka;
 using Base.Core.Validate;
 using Base.NetCoreAPI;
 using Base.NetCoreAPI.Interface;
@@ -26,6 +28,7 @@ builder.Services.AddScoped<ApiResponseDto>();
 builder.Services.AddSingleton<IDbSettings, DbSettings>();
 builder.Services.AddSingleton<DapperDbContext>();
 builder.Services.AddHealthChecks();
+builder.Services.AddHostedService<TestConsumer>();
 var app = builder.Build();
 
 builder.Configuration

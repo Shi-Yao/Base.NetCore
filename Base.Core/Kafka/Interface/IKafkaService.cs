@@ -2,9 +2,16 @@
 
 public interface IKafkaProducerService
 {
-    Task PublishAsync<T>(T? message) where T : class;
+    Task PublishAsync<T>(
+        T message,
+        string? key = null,
+        string? topic = null)
+        where T : class;
 }
 public interface IKafkaConsumerService
 {
-    Task SubscribeAsync<T>(Func<T, Task> ProcessMessageFunc, CancellationToken cancellationToken = default) where T : class;
+    Task SubscribeAsync<T>(
+        Func<T, Task> ProcessMessageFunc,
+        CancellationToken cancellationToken = default)
+        where T : class;
 }

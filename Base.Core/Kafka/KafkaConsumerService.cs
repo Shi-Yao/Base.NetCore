@@ -1,105 +1,211 @@
 ﻿using Base.Core.Model;
 using Confluent.Kafka;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
+using System.Text.Json;
 using Base.Core.Kafka.Interface;
+using System.Collections.Concurrent;
+using System.Threading.Channels;
 
 namespace Base.Core.Kafka
 {
-    public class KafkaConsumerService: IKafkaConsumerService
+    public class KafkaConsumerService : IKafkaConsumerService
     {
-        protected readonly ILogger<KafkaConsumerService> _logger;
-        protected readonly string _kafkaServer;
-        protected readonly string _kafkaTopic;
-        protected readonly string _kafkaGroupId;
-        protected readonly AutoOffsetReset _autoOffset;
+        private readonly ILogger<KafkaConsumerService> _logger;
+        private readonly KafkaSetting _settings;
 
-        public KafkaConsumerService(ILogger<KafkaConsumerService> logger, KafkaSetting settings)
+        public KafkaConsumerService(
+            ILogger<KafkaConsumerService> logger,
+            KafkaSetting settings)
         {
             _logger = logger;
-            _kafkaServer = settings.BootstrapServers;
-            _kafkaTopic = settings.Topic;
-            _kafkaGroupId = settings.GroupId;
-            _autoOffset = settings.AutoOffsetReset != null ? settings.AutoOffsetReset : AutoOffsetReset.Latest;
+            _settings = settings;
         }
 
-        public async Task SubscribeAsync<T>(Func<T, Task> ProcessMessageFunc, CancellationToken cancellationToken = default)
+        public async Task SubscribeAsync<T>(
+            Func<T, Task> processMessageFunc,
+            CancellationToken cancellationToken = default)
             where T : class
         {
             var config = new ConsumerConfig
             {
-                BootstrapServers = _kafkaServer,
-                GroupId = _kafkaGroupId,
+                BootstrapServers = _settings.BootstrapServers,
+                GroupId = _settings.GroupId,
                 EnableAutoCommit = false,
-                Acks = Acks.Leader,
-                AutoOffsetReset = _autoOffset
+                AutoOffsetReset = _settings.AutoOffsetReset ?? AutoOffsetReset.Latest,
+                // consumer 2次poll 超過這時間會剔除Consumer Group，將partition分給別的consumer消費，做rebalance
+                MaxPollIntervalMs = 300000, 
+                SessionTimeoutMs = 10000,
             };
 
-            using var _ = _logger.BeginScope(new KeyValuePair<string, object>("KafkaServer", _kafkaServer));
-            using var __ = _logger.BeginScope(new KeyValuePair<string, object>("KafkaTopic", _kafkaTopic));
             using var consumer = new ConsumerBuilder<Ignore, string>(config).Build();
-            consumer.Subscribe(_kafkaTopic);
+            consumer.Subscribe(_settings.Topic);
+
+            var partitionChannels = new ConcurrentDictionary<TopicPartition, Channel<ConsumeResult<Ignore, string>>>();
+            var workers = new ConcurrentDictionary<TopicPartition, Task>();
 
             try
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    try
+                    var result = consumer.Consume(cancellationToken);
+
+                    if (result?.Message == null || result.IsPartitionEOF)
+                        continue;
+
+                    var tp = result.TopicPartition;
+
+                    // 依照 Partition 取得對應的 Channel
+                    // 如果不存在就建立一個新的（每個 partition 一個 channel）
+                    var channel = partitionChannels.GetOrAdd(tp, _ =>
                     {
-                        var consumeResult = consumer.Consume(cancellationToken);
-                        if (consumeResult?.Message == null) continue;
-                        if (consumeResult.IsPartitionEOF) continue;
-
-                        _logger.LogDebug($"Message received, partition:{consumeResult.Partition}, offset {consumeResult.Offset}.");
-
-                        var messageValue = consumeResult.Message.Value;
-                        if (messageValue == null)
+                        // 建立 bounded channel（最多 1000 筆）
+                        // 1. 防止記憶體爆掉
+                        // 2. 當處理跟不上時，觸發 Kafka backpressure
+                        var ch = Channel.CreateBounded<ConsumeResult<Ignore, string>>(new BoundedChannelOptions(1000)
                         {
-                            _logger.LogError("Received null message.");
-                            continue;
-                        }
+                            FullMode = BoundedChannelFullMode.Wait
+                        });
 
-                        try
-                        {
-                            var messageObj = typeof(T) == typeof(string)
-                                ? messageValue as T
-                                : JsonConvert.DeserializeObject<T>(messageValue);
+                        // 每個 partition 啟動一個專屬 worker（單線處理）
+                        // 1. 保證 Kafka partition 順序
+                        // 2. 避免 multi-thread 搶同一 partition
+                        workers[tp] = Task.Run(() =>
+                            PartitionWorker(ch, consumer, processMessageFunc, cancellationToken));
 
-                            if (messageObj == null)
-                            {
-                                _logger.LogError("Failed to deserialize message to {T}", typeof(T));
-                                continue;
-                            }
+                        return ch;
+                    });
 
-                            await ProcessMessageFunc(messageObj);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError("Message processing failed: {Message}, Error: {Error}", messageValue, ex);
-                        }
-
-                        try
-                        {
-                            consumer.Commit(consumeResult);
-                        }
-                        catch (KafkaException e)
-                        {
-                            _logger.LogError(e.Message);
-                        }
-                    }
-                    catch (ConsumeException e)
-                    {
-                        _logger.LogError("Consume error: {Reason}", e.Error.Reason);
-                    }
+                    await channel.Writer.WriteAsync(result, cancellationToken);
                 }
             }
-            catch (OperationCanceledException e)
+            catch (OperationCanceledException)
             {
-                _logger.LogWarning("Closing consumer. {Exception}", e);
+                _logger.LogWarning("Consumer stopping...");
+            }
+            finally
+            {
+                foreach (var ch in partitionChannels.Values)
+                    ch.Writer.Complete();
+
+                await Task.WhenAll(workers.Values);
+
                 consumer.Close();
             }
+        }
 
-            await Task.CompletedTask;
+        /// <summary>
+        /// 同一個 partition 必須維持順序
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="channel"></param>
+        /// <param name="consumer"></param>
+        /// <param name="processMessageFunc"></param>
+        /// <param name="cancellationToken"></param>
+        /// <returns></returns>
+        private async Task PartitionWorker<T>(
+            Channel<ConsumeResult<Ignore, string>> channel,
+            IConsumer<Ignore, string> consumer,
+            Func<T, Task> processMessageFunc,
+            CancellationToken cancellationToken)
+            where T : class
+        {
+            var batch = new List<ConsumeResult<Ignore, string>>(100);
+
+            var lastCommitTime = DateTime.UtcNow;
+
+            await foreach (var consumeResult in channel.Reader.ReadAllAsync(cancellationToken))
+            {
+                var messageValue = consumeResult.Message.Value;
+
+                if (string.IsNullOrEmpty(messageValue))
+                    continue;
+
+                T? messageObj;
+
+                try
+                {
+                    messageObj = typeof(T) == typeof(string)
+                        ? messageValue as T
+                        : JsonSerializer.Deserialize<T>(messageValue);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Deserialize failed");
+                    await SendToDlq(messageValue);
+                    continue;
+                }
+
+                if (messageObj == null)
+                {
+                    await SendToDlq(messageValue);
+                    continue;
+                }
+
+                var success = false;
+
+                for (int i = 0; i < 3; i++)
+                {
+                    try
+                    {
+                        await processMessageFunc(messageObj);
+                        success = true;
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Retry {Retry}", i + 1);
+                        await Task.Delay(500, cancellationToken);
+                    }
+                }
+
+                if (!success)
+                {
+                    await SendToDlq(messageValue);
+                    continue;
+                }
+
+                batch.Add(consumeResult);
+
+                // 假設未滿批次commit條件，程式crash，因為還沒commit，程式重啟後會重上一個 offset開始做
+                if (batch.Count >= _settings.CommitBatchSize ||
+                    (DateTime.UtcNow - lastCommitTime).TotalSeconds >= 5)
+                {
+                    CommitBatch(consumer, batch);
+                    batch.Clear();
+
+                    lastCommitTime = DateTime.UtcNow;
+                }
+            }
+
+            // flush 最後殘留（一定要）
+            if (batch.Count > 0)
+            {
+                CommitBatch(consumer, batch);
+            }
+        }
+
+        private void CommitBatch(
+            IConsumer<Ignore, string> consumer,
+            List<ConsumeResult<Ignore, string>> batch)
+        {
+            try
+            {
+                var last = batch[^1];
+                consumer.Commit(last);
+            }
+            catch (KafkaException ex)
+            {
+                _logger.LogError(ex, "Commit failed");
+            }
+        }
+
+        /// <summary>
+        /// Dead Letter Queue，處理失敗的訊息，丟到另一個地方保存
+        /// </summary>
+        protected virtual Task SendToDlq(string message)
+        {
+            _logger.LogError("DLQ Message: {Message}", message);
+            return Task.CompletedTask;
         }
     }
 }
