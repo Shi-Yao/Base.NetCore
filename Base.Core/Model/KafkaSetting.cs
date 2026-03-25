@@ -20,6 +20,11 @@ namespace Base.Core.Model
         public string Topic { get; set; }
 
         /// <summary>
+        /// Failed Topic
+        /// </summary>
+        public string FailedTopic { get; set; }
+
+        /// <summary>
         /// 是否自動提交 Offset (位移量)
         /// </summary>
         public bool? EnableAutoCommit { get; set; }
