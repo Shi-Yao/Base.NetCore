@@ -1,4 +1,6 @@
-﻿namespace Base.Core.Kafka.Interface;
+﻿using Base.Core.Model;
+
+namespace Base.Core.Kafka.Interface;
 
 public interface IKafkaProducerService
 {
@@ -14,4 +16,9 @@ public interface IKafkaConsumerService
         Func<T, Task> ProcessMessageFunc,
         CancellationToken cancellationToken = default)
         where T : class;
+
+    /// <summary>
+    /// 獲取Kafka配置
+    /// </summary>
+    KafkaSetting Settings { get; }
 }
